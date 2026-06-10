@@ -1,23 +1,54 @@
 # Weather App
 
-A browser-based weather app that shows current conditions for your location or any searched city. Uses the OpenWeatherMap API for weather data and a local Express server for city/country autocomplete.
+A browser-based weather app that shows current conditions for your location or any searched city. Pulls weather from OpenWeatherMap; city autocomplete is served by a small local Express server.
+
+## Essential Files
+
+| File | Role |
+|---|---|
+| `weather.html` | UI structure — search input, weather display card, bottom stats bar |
+| `weather.js` | All client logic — geolocation, API fetch, DOM updates, debounced search, dropdown |
+| `weather.css` | Card layout, dropdown styling, search input appearance |
+| `citiesApi.js` | Express server — reads `countries.json`, serves flat `"City, Country"` list at `GET /cities` |
+| `package.json` | Declares ES module type and Express dependency |
+
+> `node_modules/` is a generated dependency tree — excluded by `.gitignore` and fully reproducible with `npm install`.
 
 ---
 
-## Features
+## How It Works
 
-- Auto-detects your location via the browser Geolocation API on load
-- Displays city, current temperature (°C), weather condition, feels like, humidity, wind speed, and pressure
-- City search with debounced autocomplete dropdown (300ms delay)
-- Autocomplete data served from a local Express API backed by a `countries.json` file
+```
+Page load
+  └── getLocation()       → browser Geolocation API → [lat, lon]
+        └── fetchAPI()    → OpenWeatherMap /data/2.5/weather?lat=&lon=
+              └── updates DOM: city, condition, temp, feels like,
+                              humidity, wind, pressure, weather icon
+
+Search input (debounced 300ms)
+  └── updateDropdown()    → filters countryCityList against typed query
+        └── on city select:
+              └── getLatLon()   → OpenWeatherMap /geo/1.0/direct?q=
+                    └── fetchAPI() with new lat/lon
+
+City list (loaded once on startup)
+  └── getData()           → GET http://localhost:8080/cities
+        └── countryCityList[] populated for dropdown filtering
+
+citiesApi.js (separate Node process)
+  └── reads countries.json → flattens to ["City, Country", ...]
+        └── serves at GET /localhost:8080/cities
+```
+
+Temperatures are converted from Kelvin to Celsius (`K - 273.15`). Weather condition background color is looked up from a hardcoded `colors` map.
 
 ---
 
 ## Prerequisites
 
 - Node.js
-- An [OpenWeatherMap](https://openweathermap.org/api) API key
-- A `countries.json` file mapping country names to arrays of city names
+- An [OpenWeatherMap API key](https://openweathermap.org/api)
+- A `countries.json` file: `{ "CountryName": ["City1", "City2", ...], ... }`
 
 ---
 
@@ -33,37 +64,26 @@ npm install
 const key = "YOUR_API_KEY_HERE";
 ```
 
-**3. Update the path to `countries.json`** in `citiesApi.js`:
+**3. Fix the `countries.json` path** in `citiesApi.js` (currently hardcoded to a local Windows path):
 ```js
-const data = JSON.parse(readFileSync('/path/to/countries.json', 'utf8'));
+const data = JSON.parse(readFileSync('./countries.json', 'utf8'));
 ```
 
-**4. Start the cities API server:**
+**4. Start the cities server:**
 ```bash
 node citiesApi.js
-# Runs at http://localhost:8080
+# → http://localhost:8080
 ```
 
-**5. Open `weather.html`** in a browser (serve it via a local server if needed, since geolocation requires a secure or localhost context).
-
----
-
-## Project Structure
-
-```
-weather.html      # UI
-weather.css       # Styles
-weather.js        # Weather fetching, search, geolocation
-citiesApi.js      # Express server — serves city/country list
-package.json      # Node dependencies (Express, ES modules)
-```
+**5. Open `weather.html`** via a local server or browser (geolocation requires `localhost` or HTTPS).
 
 ---
 
 ## Known Limitations / TODOs
 
-- API key is hardcoded in `weather.js` — should be moved to an environment variable
-- Path to `countries.json` in `citiesApi.js` is an absolute local path — must be updated per machine
-- Min/max temperatures both show the current temp (the API `main.temp_min`/`temp_max` fields are unused)
-- No error state shown in the UI if the API call fails or geolocation is denied
-- Weather condition color map only covers `Clear`, `Sunny`, and `Clouds`; other conditions fall back to no color
+- API key is hardcoded in `weather.js` — should be an environment variable or server-side proxy
+- `countries.json` path in `citiesApi.js` is an absolute local Windows path — breaks on any other machine as-is
+- Min/max temperatures both display `main.temp`; `main.temp_min` and `main.temp_max` from the API response are unused
+- `getData()` in `weather.js` tries to iterate the response as `{ country: [cities] }` but `citiesApi.js` already returns a flat array — the loop does nothing and `countryCityList` stays empty (search never returns results)
+- No UI feedback when geolocation is denied or an API call fails
+- `colors` map only covers `Clear`, `Sunny`, and `Clouds`; all other conditions render with no background color
